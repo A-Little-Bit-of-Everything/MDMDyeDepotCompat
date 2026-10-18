@@ -4,7 +4,7 @@
   "package": "net.notaglitch.mdmdyedepotcompat.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "DiscDyeMixin"
+    "DiscDyeingTableBlockEntityMixin"
   ],
   "injectors": {
     "defaultRequire": 1
