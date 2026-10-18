@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.notaglitch.mdmdyedepotcompat.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "DiscDyeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
