@@ -22,7 +22,7 @@ import java.util.Map;
  * {@link DyeColor} names are not in {@link DiscDye}'s built-in list) are
  * mapped to an appropriate {@link DiscDye} entry.
  *
- * <p>Strategy: maintain a hand-crafted map of Dye Depot colour name →
+ * <p>Strategy: maintain a hand-crafted map of Dye Depot color name →
  * the closest vanilla {@link DiscDye} by hue/lightness, so no fragile
  * enum-constructor reflection is needed.
  */
@@ -38,34 +38,34 @@ public abstract class DiscDyeingTableBlockEntityMixin {
     private static final Map<String, String> DD_TO_DISC_DYE = new HashMap<>();
 
     static {
-        // Warm reds / pinks
+        // Reds / pinks
         DD_TO_DISC_DYE.put("maroon",  "red");
         DD_TO_DISC_DYE.put("rose",    "pink");
-        DD_TO_DISC_DYE.put("coral",   "pink");
-        // Oranges / yellows
+        DD_TO_DISC_DYE.put("coral",   "red");
+        // Oranges / browns / tans
         DD_TO_DISC_DYE.put("amber",   "orange");
         DD_TO_DISC_DYE.put("ginger",  "orange");
-        DD_TO_DISC_DYE.put("tan",     "orange");
+        DD_TO_DISC_DYE.put("tan",     "brown");
         DD_TO_DISC_DYE.put("beige",   "white");
         // Greens
         DD_TO_DISC_DYE.put("olive",   "green");
         DD_TO_DISC_DYE.put("forest",  "green");
-        DD_TO_DISC_DYE.put("verdant", "lime");
+        DD_TO_DISC_DYE.put("verdant", "green");
         DD_TO_DISC_DYE.put("mint",    "lime");
-        // Blues / cyans / teals
+        // Cyans / teals
         DD_TO_DISC_DYE.put("teal",    "cyan");
         DD_TO_DISC_DYE.put("aqua",    "cyan");
+        // Blues / purples
         DD_TO_DISC_DYE.put("navy",    "blue");
-        // Purples / blues
         DD_TO_DISC_DYE.put("indigo",  "purple");
-        DD_TO_DISC_DYE.put("slate",   "light_gray");
+        DD_TO_DISC_DYE.put("slate",   "light_blue");
     }
 
     /**
      * Redirects the {@code DiscDye.byId(String)} call inside
      * {@code DiscDyeingTableBlockEntity.dyeOf(ItemStack)}.
      *
-     * <p>When the colour name is a Dye Depot name that {@link DiscDye#byId}
+     * <p>When the color name is a Dye Depot name that {@link DiscDye#byId}
      * would return {@code null} for, we substitute the mapped vanilla name
      * before calling {@code byId}.
      */
@@ -82,7 +82,7 @@ public abstract class DiscDyeingTableBlockEntityMixin {
             String mapped = DD_TO_DISC_DYE.get(id);
             if (mapped != null) {
                 result = DiscDye.byId(mapped);
-                LOGGER.debug("[MDMDyeDepotCompat] Mapped Dye Depot colour '{}' → DiscDye '{}'", id, mapped);
+                LOGGER.debug("[MDMDyeDepotCompat] Mapped Dye Depot color '{}' → DiscDye '{}'", id, mapped);
             }
         }
         return result;

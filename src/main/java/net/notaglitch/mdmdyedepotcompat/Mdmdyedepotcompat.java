@@ -12,17 +12,35 @@ import sun.misc.Unsafe;
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 
+/**
+ * Compat mod that lets the Music Disc Maker disc-dyeing table accept Dye Depot dyes
+ * AND give each Dye Depot color a distinct disc tint.
+ *
+ * <p>Two things must happen, both done here in {@link FMLCommonSetupEvent}:
+ * <ol>
+ *   <li><b>Inject the 16 Dye Depot colors into {@code DiscDye.VALUES}</b> so that
+ *       {@code DiscDye.byId()} resolves them and {@code DiscPalette} (which tints
+ *       purely from each dye's HSL fields) produces a unique color.</li>
+ *   <li><b>Resize {@code DiscDyeTint}'s caches.</b> That class snapshots
+ *       {@code DiscDye.values()} (16) into {@code DYES}/{@code DYE_COUNT} and sizes
+ *       {@code CUSTOM_CACHE} as {@code DYE_COUNT²} = 256, then indexes it by
+ *       {@code board.ordinal() * DYE_COUNT + accent.ordinal()}. Our injected dyes
+ *       have ordinals 16–31, which overflow the 256-slot cache (the crash seen in
+ *       earlier builds). We rebuild those caches sized to the new dye count.</li>
+ * </ol>
+ *
+ * <p>Enum instances can't be created via a constructor
+ * ("Cannot reflectively create enum objects"), so we use
+ * {@link Unsafe#allocateInstance(Class)} and populate fields via Unsafe offsets
+ * (which also bypass the module system's block on {@code java.lang.Enum} fields).
+ */
 @Mod(Mdmdyedepotcompat.MODID)
 public class Mdmdyedepotcompat {
 
     public static final String MODID = "mdmdyedepotcompat";
     private static final Logger LOGGER = LogUtils.getLogger();
 
-    /**
-     * Dye Depot colours to inject into {@link DiscDye#VALUES}.
-     * Format: { id, hue, saturation, lightness }
-     * HSL derived from each dye's primary RGB in DDDyes.
-     */
+    /** { id, hue, saturation, lightness } per Dye Depot dye (HSL from DDDyes RGB). */
     private static final Object[][] DYE_DEPOT_COLORS = {
         { "amber",    48.84,  100.00,  42.16 },
         { "aqua",    165.21,   82.95,  65.49 },
@@ -47,32 +65,25 @@ public class Mdmdyedepotcompat {
     }
 
     private void commonSetup(FMLCommonSetupEvent event) {
-        event.enqueueWork(this::injectDiscDyeColors);
+        event.enqueueWork(() -> {
+            if (injectDiscDyeColors()) {
+                // DiscDyeTint is a client-only class; only touch it on the client.
+                if (net.neoforged.fml.loading.FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
+                    resizeDiscDyeTintCaches();
+                }
+            }
+        });
     }
 
-    /**
-     * Adds the Dye Depot colours to {@link DiscDye#VALUES}.
-     *
-     * <p>Java forbids {@code Constructor.newInstance()} on enum types
-     * ("Cannot reflectively create enum objects"), so we allocate the
-     * instances with {@link Unsafe#allocateInstance(Class)} — which does not
-     * invoke any constructor — and then populate the private final fields
-     * ({@code id}, {@code hue}, {@code saturation}, {@code lightness}) plus the
-     * {@link Enum} base fields ({@code name}, {@code ordinal}) via reflection.
-     */
-    private void injectDiscDyeColors() {
+    /** @return true if VALUES now contains the Dye Depot colors (either we added them or they were already present). */
+    private boolean injectDiscDyeColors() {
         try {
             Unsafe unsafe = getUnsafe();
 
-            // ── Resolve all fields; we write them via Unsafe field offsets so that
-            //    the Java module system cannot block access (notably java.lang.Enum
-            //    which lives in the locked-down java.base module). ─────────────────
             Field idField    = DiscDye.class.getDeclaredField("id");
             Field hueField   = DiscDye.class.getDeclaredField("hue");
             Field satField   = DiscDye.class.getDeclaredField("saturation");
             Field lightField = DiscDye.class.getDeclaredField("lightness");
-
-            // Enum base fields (name + ordinal) live on java.lang.Enum
             Field nameField    = Enum.class.getDeclaredField("name");
             Field ordinalField = Enum.class.getDeclaredField("ordinal");
 
@@ -83,72 +94,105 @@ public class Mdmdyedepotcompat {
             long nameOffset    = unsafe.objectFieldOffset(nameField);
             long ordinalOffset = unsafe.objectFieldOffset(ordinalField);
 
-            // ── Read current VALUES via plain reflection (DiscDye is in our module
-            //    context, so setAccessible works — only java.lang.Enum fields are
-            //    blocked, which is why those use Unsafe below). ───────────────────
+            // Read VALUES via reflection (readable; it's the WRITE of a final field that needs Unsafe)
             Field valuesField = DiscDye.class.getDeclaredField("VALUES");
             valuesField.setAccessible(true);
             DiscDye[] current = (DiscDye[]) valuesField.get(null);
 
             int baseOrdinal = current.length;
             java.util.List<DiscDye> newEntries = new java.util.ArrayList<>();
-
             for (Object[] color : DYE_DEPOT_COLORS) {
                 String id = (String) color[0];
-
                 boolean exists = false;
                 for (DiscDye d : current) {
                     if (d.id().equals(id)) { exists = true; break; }
                 }
                 if (exists) continue;
 
-                // Allocate without calling the constructor
                 DiscDye entry = (DiscDye) unsafe.allocateInstance(DiscDye.class);
-
-                // Populate Enum base state via Unsafe (module-check-free)
                 unsafe.putObject(entry, nameOffset, id.toUpperCase(java.util.Locale.ROOT));
                 unsafe.putInt(entry, ordinalOffset, baseOrdinal + newEntries.size());
-
-                // Populate DiscDye state via Unsafe
                 unsafe.putObject(entry, idOffset, id);
                 unsafe.putDouble(entry, hueOffset, (double) color[1]);
                 unsafe.putDouble(entry, satOffset, (double) color[2]);
                 unsafe.putDouble(entry, lightOffset, (double) color[3]);
-
                 newEntries.add(entry);
             }
 
             if (newEntries.isEmpty()) {
-                LOGGER.info("[MDMDyeDepotCompat] All Dye Depot colours already present in DiscDye.VALUES – nothing to do.");
-                return;
+                LOGGER.info("[MDMDyeDepotCompat] Dye Depot colors already present in DiscDye.VALUES.");
+                return true;
             }
 
-            // ── Write extended array back ──────────────────────────────────────
             DiscDye[] extended = (DiscDye[]) Array.newInstance(DiscDye.class, current.length + newEntries.size());
             System.arraycopy(current, 0, extended, 0, current.length);
             for (int i = 0; i < newEntries.size(); i++) {
                 extended[current.length + i] = newEntries.get(i);
             }
 
-            // VALUES is 'static final', so Field.set() throws IllegalAccessException.
-            // Use Unsafe's static-field API, which can write final fields.
+            // VALUES is static final -> write via Unsafe static-field API
             Object valuesBase   = unsafe.staticFieldBase(valuesField);
             long   valuesOffset = unsafe.staticFieldOffset(valuesField);
             unsafe.putObject(valuesBase, valuesOffset, extended);
 
-            // Verify the write actually took effect by reading the field back.
-            DiscDye[] afterWrite = (DiscDye[]) valuesField.get(null);
-            LOGGER.info("[MDMDyeDepotCompat] Injected {} Dye Depot colour(s); DiscDye.VALUES length {} -> {}.",
-                    newEntries.size(), current.length, afterWrite.length);
-
-            // Sanity-check that byId can now resolve a Dye Depot colour.
-            DiscDye check = DiscDye.byId("verdant");
-            LOGGER.info("[MDMDyeDepotCompat] DiscDye.byId(\"verdant\") = {}", check == null ? "null" : check.id());
+            DiscDye[] verify = (DiscDye[]) valuesField.get(null);
+            LOGGER.info("[MDMDyeDepotCompat] Injected {} Dye Depot color(s); DiscDye.VALUES {} -> {}.",
+                    newEntries.size(), current.length, verify.length);
+            return true;
 
         } catch (Throwable t) {
-            LOGGER.error("[MDMDyeDepotCompat] Failed to inject Dye Depot colours into DiscDye.VALUES. " +
-                    "The @Redirect fallback will still provide approximate colour support.", t);
+            LOGGER.error("[MDMDyeDepotCompat] Failed to inject Dye Depot colors into DiscDye.VALUES.", t);
+            return false;
         }
+    }
+
+    /**
+     * Rebuilds {@code DiscDyeTint}'s snapshot fields so they agree with the now-larger
+     * {@code DiscDye.VALUES}. Otherwise its 16×16 color cache overflows when indexed
+     * by our ordinals 16–31 and crashes the dyeing-table screen.
+     */
+    private void resizeDiscDyeTintCaches() {
+        try {
+            Class<?> tintClass = Class.forName("com.kuronami.musicdiscmaker.client.DiscDyeTint");
+            Unsafe unsafe = getUnsafe();
+
+            DiscDye[] allDyes = DiscDye.values();   // the real enum constants (still 16 — $VALUES is untouched)
+            // We index caches by ordinal, and our injected dyes have the highest ordinals,
+            // so the cache must be sized by (maxOrdinal + 1), not by values().length.
+            Field valuesField = DiscDye.class.getDeclaredField("VALUES");
+            valuesField.setAccessible(true);
+            DiscDye[] extended = (DiscDye[]) valuesField.get(null);
+            int dyeCount = extended.length;
+
+            // DYES field: replace with the extended list so automaticColors() can index it
+            setStaticFinalObject(unsafe, tintClass.getDeclaredField("DYES"), extended);
+
+            // DYE_COUNT (int): widen to the new count so colors()'s index math matches cache size
+            Field dyeCountField = tintClass.getDeclaredField("DYE_COUNT");
+            Object dcBase = unsafe.staticFieldBase(dyeCountField);
+            long   dcOff  = unsafe.staticFieldOffset(dyeCountField);
+            unsafe.putInt(dcBase, dcOff, dyeCount);
+
+            // CUSTOM_CACHE (int[][]): size dyeCount * dyeCount (board.ordinal()*DYE_COUNT + accent.ordinal())
+            setStaticFinalObject(unsafe, tintClass.getDeclaredField("CUSTOM_CACHE"),
+                    new int[dyeCount * dyeCount][]);
+
+            // AUTO_ACCENT_CACHE (int[][]): size dyeCount
+            setStaticFinalObject(unsafe, tintClass.getDeclaredField("AUTO_ACCENT_CACHE"),
+                    new int[dyeCount][]);
+
+            LOGGER.info("[MDMDyeDepotCompat] Resized DiscDyeTint caches to dye count {}.", dyeCount);
+
+        } catch (Throwable t) {
+            LOGGER.error("[MDMDyeDepotCompat] Failed to resize DiscDyeTint caches. " +
+                    "Dyeing with Dye Depot colors may crash the screen – report this.", t);
+        }
+    }
+
+    private static void setStaticFinalObject(Unsafe unsafe, Field field, Object value) {
+        Object base = unsafe.staticFieldBase(field);
+        long off = unsafe.staticFieldOffset(field);
+        unsafe.putObject(base, off, value);
     }
 
     private static Unsafe getUnsafe() throws Exception {
