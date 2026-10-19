@@ -129,9 +129,21 @@ public class Mdmdyedepotcompat {
             for (int i = 0; i < newEntries.size(); i++) {
                 extended[current.length + i] = newEntries.get(i);
             }
-            valuesField.set(null, extended);
 
-            LOGGER.info("[MDMDyeDepotCompat] Injected {} Dye Depot colour(s) into DiscDye.VALUES.", newEntries.size());
+            // VALUES is 'static final', so Field.set() throws IllegalAccessException.
+            // Use Unsafe's static-field API, which can write final fields.
+            Object valuesBase   = unsafe.staticFieldBase(valuesField);
+            long   valuesOffset = unsafe.staticFieldOffset(valuesField);
+            unsafe.putObject(valuesBase, valuesOffset, extended);
+
+            // Verify the write actually took effect by reading the field back.
+            DiscDye[] afterWrite = (DiscDye[]) valuesField.get(null);
+            LOGGER.info("[MDMDyeDepotCompat] Injected {} Dye Depot colour(s); DiscDye.VALUES length {} -> {}.",
+                    newEntries.size(), current.length, afterWrite.length);
+
+            // Sanity-check that byId can now resolve a Dye Depot colour.
+            DiscDye check = DiscDye.byId("verdant");
+            LOGGER.info("[MDMDyeDepotCompat] DiscDye.byId(\"verdant\") = {}", check == null ? "null" : check.id());
 
         } catch (Throwable t) {
             LOGGER.error("[MDMDyeDepotCompat] Failed to inject Dye Depot colours into DiscDye.VALUES. " +
