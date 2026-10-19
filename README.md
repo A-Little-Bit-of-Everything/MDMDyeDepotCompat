@@ -25,19 +25,22 @@ its own.
 
 ## Installation
 
-Drop `mdmdyedepotcompat-<version>.jar` into your `mods/` folder alongside Music
-Disc Maker and Dye Depot.
+Download the latest `mdmdyedepotcompat-<version>.jar` from the
+[GitHub Releases page](https://github.com/A-Little-Bit-of-Everything/MDMDyeDepotCompat/releases)
+(current release:
+[0.1.8](https://github.com/A-Little-Bit-of-Everything/MDMDyeDepotCompat/releases/tag/0.1.8))
+and drop it into your `mods/` folder alongside Music Disc Maker and Dye Depot.
 
 ## Modrinth
 
-<!-- TODO: fill in once the project is published on Modrinth -->
+- **Project page:** [modrinth.com/mod/mdm-dye-depot-compat](https://modrinth.com/mod/mdm-dye-depot-compat)
+  _(pending approval)_
+- **Download:** grab the latest jar from the project's **Files** tab once it is live,
+  or from the [GitHub Releases page](https://github.com/A-Little-Bit-of-Everything/MDMDyeDepotCompat/releases)
+  in the meantime.
 
-- **Project page:** _coming soon_ (`https://modrinth.com/mod/<slug>`)
-- **Download:** grab the latest jar from the Modrinth project's Files tab.
-- **Modrinth project ID:** _TBD_
-
-> When publishing, remember to list Music Disc Maker and Dye Depot as **required**
-> dependencies and tag the mod for Minecraft 1.21.1 / NeoForge.
+> Music Disc Maker and Dye Depot are listed as **required** dependencies; the mod is
+> tagged for Minecraft 1.21.1 / NeoForge.
 
 ## Multiplayer
 
@@ -88,6 +91,45 @@ The Music Disc Maker and Dye Depot jars are referenced as compile-only
 dependencies via paths in `gradle.properties`
 (`music_disc_maker_jar` and `dye_depot_jar`) — update those paths to point at
 your local copies before building.
+
+## Generating a Custom Disc Image
+
+The special **`-logo`** build (e.g.
+[`mdmdyedepotcompat-0.1.8-logo.jar`](https://github.com/A-Little-Bit-of-Everything/MDMDyeDepotCompat/releases/tag/0.1.8))
+includes a one-shot utility that renders a custom music-disc texture for any
+board + accent colour pair and saves it as a PNG. This is how the project logo
+(indigo board, forest accent) was produced.
+
+It is **not** part of the normal release — use the `-logo` jar only when you want
+to generate an image, then switch back to the regular jar.
+
+1. Put `mdmdyedepotcompat-<version>-logo.jar` in your `mods/` folder (alongside
+   Music Disc Maker and Dye Depot, as usual).
+2. Add this JVM argument to your launcher, where the two values are the **board**
+   and **accent** colour ids:
+
+   ```
+   -Dmdmddc.dumpLogo=indigo,forest
+   ```
+
+   In PrismLauncher: **Edit Instance → Settings → Java → JVM arguments**. Any of
+   the 16 vanilla dye names or the 16 Dye Depot names (amber, aqua, beige, coral,
+   forest, ginger, indigo, maroon, mint, navy, olive, rose, slate, tan, teal,
+   verdant) may be used.
+3. Launch the game and wait until the main menu appears (no world needs to be
+   loaded — the texture is composited from the in-game resources once they are
+   available).
+4. The image is written to:
+
+   ```
+   <instance>/minecraft/mdmddc_logo/disc_<board>_<accent>.png
+   ```
+
+   It is a 512 × 512 PNG (the 16 × 16 disc scaled up 32× with nearest-neighbour,
+   so it stays crisp pixel art). The colours are produced by Music Disc Maker's
+   own `DiscDyeTint`, so the output matches the in-game disc exactly.
+5. Remove the `-Dmdmddc.dumpLogo` argument and swap the `-logo` jar back out for
+   the normal release jar when you are done.
 
 ## Known Limitations
 
